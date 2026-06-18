@@ -446,7 +446,7 @@ const POWER_SPEED  = 1.6;                            // meter oscillation rate (
 const MIN_LAUNCH_SPEED = 18;                         // ball speed (units/sec) at MIN_POWER
 const MAX_LAUNCH_SPEED = 55;                         // ball speed (units/sec) at MAX_POWER
 
-const FRICTION   = 4.0;                              // rolling deceleration (units/sec^2)  [Step 3]
+const FRICTION   = 1.5;                              // rolling deceleration (units/sec^2)                            // rolling deceleration (units/sec^2)  [Step 3]
 const STOP_SPEED = 2.0;                              // below this the ball counts as stopped [Step 3]
 const GUTTER_Y   = -0.05;                            // y the ball drops to in a gutter      [Step 3]
 
@@ -541,7 +541,38 @@ function releaseBall() {
   const dir = new THREE.Vector3(Math.sin(game.aimAngle), 0, -Math.cos(game.aimAngle));
   const speed = MIN_LAUNCH_SPEED + game.power * (MAX_LAUNCH_SPEED - MIN_LAUNCH_SPEED);
   game.velocity.copy(dir.multiplyScalar(speed));
-  game.phase = PHASES.ROLLING;   // Step 3 integrates this velocity each frame
+  game.gutterBall = false; // fresh roll
+  game.phase = PHASES.ROLLING;
+}
+
+function rollBall(dt) {
+    // Rolling friction: bleed a little speed each frame
+    const speed = game.velocity.length();
+    const newSpeed =  Math.max(0, speed - FRICTION * dt);
+    if (speed > 0) game.velocity.multiplyScalar(newSpeed / speed);
+    // Integrate position from velocity.
+    ball.position.addScaledVector(game.velocity, dt);
+    // Visual roll: spin the ball about the horizontal axis perpendicular to travel.
+    if (newSpeed > 0) {
+        const dir = game.velocity.clone().normalize();
+        const axis = new THREE.Vector3(dir.z, 0, -dir.x).normalize();  // up × travelDir
+        ball.rotateOnWorldAxis(axis, (newSpeed * dt) / BALL_RADIUS);
+    }
+    // Gutter ball: ball left the lane edges -> drop it in, zero the roll.
+    if (!game.gutterBall && Math.abs(ball.position.x) > LANE_HALF_WIDTH) {
+        game.gutterBall = true;
+        ball.position.x = Math.sign(ball.position.x) * 1.95;  // sit in the gutter channel
+        ball.position.y = GUTTER_Y + BALL_RADIUS;             // drop below lane level
+        game.velocity.x = 0;                                  // roll straight to the end
+    }
+    // End the roll: reached the pin deck, or effectively stopped.
+    if (ball.position.z <= -60 || newSpeed <= STOP_SPEED) {
+        endRoll();
+    }
+}
+function endRoll() {
+    game.phase = PHASES.RESOLVING;
+    game.resolveTimer = 1.0;   // Step 5 will score + advance the frame here instead
 }
 
 // Called every frame from animate().
@@ -553,7 +584,14 @@ function updateGame(dt) {
     else if (game.power <= MIN_POWER) { game.power = MIN_POWER; game.powerDir = 1; }
   }
 
-  // TODO (Step 3): if (game.phase === PHASES.ROLLING) integrate ball position here.
+  if (game.phase === PHASES.ROLLING) {
+      rollBall(dt);
+  }
+
+  if (game.phase === PHASES.RESOLVING) {
+      game.resolveTimer -=dt;
+      if (game.resolveTimer <= 0) resetAim();
+  }
 
   // Show the meter only while aiming or charging.
   powerMeter.style.display =
