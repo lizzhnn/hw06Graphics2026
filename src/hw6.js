@@ -431,12 +431,50 @@ function setCameraView(view) {
 }
 
 // =============================================================================
-// HW06 GAME STATE
+// HW06 GAME STATE  + TUNING CONSTANTS
 // =============================================================================
-// TODO (HW06): Track frame/roll, ball phase ('aiming'|'power'|'rolling'|
-// 'resolving'|'gameover'), aim position/direction, chosen power, release
-// velocity, and which pins are still standing (the `pins[]` array above already
-// carries per-pin `standing`/`falling` flags and a `homePos` to reset to).
+// ---- Tuning constants -------------------------------------------------------
+const LANE_HALF_WIDTH = 1.75;                       // lane is 3.5 wide -> gutter when |x| > this
+const AIM_LIMIT       = LANE_HALF_WIDTH - BALL_RADIUS; // keep the ball fully on the lane while aiming (±1.3)
+const AIM_STEP        = 0.08;                        // x-nudge per Left/Right press
+const MAX_AIM_ANGLE   = degrees_to_radians(12);      // clamp for launch angle off straight
+const AIM_ANGLE_STEP  = degrees_to_radians(1.5);     // angle change per Up/Down press (optional curve)
+
+const MIN_POWER    = 0.15;                           // power meter sweeps between these (0..1)
+const MAX_POWER    = 1.0;
+const POWER_SPEED  = 1.6;                            // meter oscillation rate (per sec)
+const MIN_LAUNCH_SPEED = 18;                         // ball speed (units/sec) at MIN_POWER
+const MAX_LAUNCH_SPEED = 55;                         // ball speed (units/sec) at MAX_POWER
+
+const FRICTION   = 4.0;                              // rolling deceleration (units/sec^2)  [Step 3]
+const STOP_SPEED = 2.0;                              // below this the ball counts as stopped [Step 3]
+const GUTTER_Y   = -0.05;                            // y the ball drops to in a gutter      [Step 3]
+
+// ---- Game phases  ------------------------------------
+const PHASES = {
+    AIMING:    'aiming',     // moving/aiming the ball on the foul line
+    POWER:     'power',      // power meter oscillating, waiting for the lock
+    ROLLING:   'rolling',    // ball in motion down the lane
+    RESOLVING: 'resolving',  // ball stopped/gutter -> counting pins, scoring
+    GAMEOVER:  'gameover',   // 10th frame complete
+};
+
+// ---- Mutable game state -----------------------------------------------------
+const game = {
+    phase: PHASES.AIMING,
+
+    // aiming / release
+    aimX:     0,                    // ball x along the foul line
+    aimAngle: 0,                    // launch angle off straight-down-lane (radians)
+    power:    MIN_POWER,            // current power-meter value (0..1)
+    powerDir: 1,                    // meter sweep direction: +1 rising, -1 falling
+    velocity: new THREE.Vector3(),  // release velocity, integrated each frame in Step 3
+
+    // scoring: one sub-array of pinfall counts per frame (e.g. [7, 2] or [10])
+    frames:        Array.from({ length: 10 }, () => []),
+    currentFrame:  0,               // 0-based index into frames (frame 1 == index 0)
+    pinsAtRollStart: 10,            // standing pins when the current roll started
+};
 
 // =============================================================================
 // HW06 UI: POWER METER + LIVE SCORECARD
