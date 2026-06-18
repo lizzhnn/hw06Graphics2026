@@ -4,11 +4,70 @@
 		<meta charset="utf-8">
 		<title>HW6 - Bowling Game</title>
 		<style>
-			body { margin: 0; }
+			body { margin: 0; overflow: hidden; }
+            /* Shared panel look */
+            #scorecard, #controls-panel {
+                position: fixed;
+                background: rgba(0, 0, 0, 0.6);
+                color: #fff;
+                font-family: Arial, sans-serif;
+                border-radius: 6px;
+            }
+            /* Scorecard: a row of 10 frames, centered at the top */
+            #scorecard {
+                top: 12px;
+                left: 50%;
+                transform: translateX(-50%);
+                display: flex;
+                gap: 2px;
+                padding: 6px;
+            }
+            .frame {
+                border: 1px solid #888;
+                min-width: 44px;
+                font-size: 12px;
+                text-align: center;
+            }
+            .frame.tenth { min-width: 64px; }          /* 10th frame is wider (3 rolls) */
+            .frame-number {
+                background: #333;
+                border-bottom: 1px solid #888;
+                padding: 2px 0;
+            }
+            .frame-rolls { display: flex; height: 22px; }
+            .roll {
+                flex: 1;
+                border-left: 1px solid #555;
+                line-height: 22px;
+            }
+            .roll:first-child { border-left: none; }
+            .frame-total {
+                height: 20px;
+                line-height: 20px;
+                border-top: 1px solid #555;
+            }
+            /* Controls panel: bottom-left */
+            #controls-panel {
+                bottom: 16px;
+                left: 16px;
+                padding: 10px 14px;
+                font-size: 14px;
+            }
+            #controls-panel h3 { margin: 0 0 6px; font-size: 15px; }
+            #controls-panel p { margin: 2px 0; }
 		</style>
 		<script src='https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js'></script>
 	</head>
 	<body>
+        <!-- 10-frame scorecard (populated in HW06) -->
+        <div id="scorecard"></div>
+
+        <!-- Controls Panel -->
+        <div id="controls-panel">
+            <h3>Bowling Game Controls</h3>
+            <p>O — Toggle orbit camera</p>
+            <p style="color:#aaa; font-style:italic;">(More controls coming in HW06)</p>
+        </div>
 		<script src="src/hw6.js" type="module"></script>
 
 	</body>
