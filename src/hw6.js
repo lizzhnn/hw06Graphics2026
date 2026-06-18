@@ -575,8 +575,240 @@ function endRoll() {
     game.resolveTimer = 1.0;   // Step 5 will score + advance the frame here instead
 }
 
+// =============================================================================
+// HW06 PIN COLLISION & TOPPLING
+// =============================================================================
+const PIN_COLLISION_RADIUS = 0.18;          // pin bounding radius for ball<->pin tests
+const PIN_PIN_RADIUS       = 1.05;          // a falling pin knocks standing pins within this
+const PIN_TOPPLE_SPEED     = 8.0;           // topple animation speed (radians/sec)
+const PIN_FALL_TARGET      = Math.PI / 2;   // 90° = lying flat
+
+// Knock a pin down: mark it, set its topple axis, and cascade to neighbours that
+// lie in the fall direction (simple distance + direction check).
+function knockPin(pin, fallDir) {
+    if (!pin.standing) return;
+    pin.standing = false;
+    pin.falling = true;
+    pin.fallProgress = 0;
+    pin.fallDir = fallDir.clone().setY(0).normalize();
+    // Horizontal axis perpendicular to the fall direction (top tips toward fallDir).
+    pin.fallAxis = new THREE.Vector3(pin.fallDir.z, 0, -pin.fallDir.x).normalize();
+
+    // Pin-to-pin propagation: knock standing neighbours ahead of the fall.
+    for (const other of pins) {
+        if (!other.standing) continue;
+        const to = other.homePos.clone().sub(pin.homePos);
+        to.y = 0;
+        const d = to.length();
+        if (d > 0 && d < PIN_PIN_RADIUS && to.clone().normalize().dot(pin.fallDir) > 0.3) {
+            knockPin(other, to);
+        }
+    }
+}
+// Ball<->pin test each frame: horizontal distance vs (ball radius + pin radius).
+function checkPinCollisions() {
+    for (const pin of pins) {
+        if (!pin.standing) continue;
+        const dx = ball.position.x - pin.mesh.position.x;
+        const dz = ball.position.z - pin.mesh.position.z;
+        if (Math.hypot(dx, dz) < BALL_RADIUS + PIN_COLLISION_RADIUS) {
+            const fallDir = new THREE.Vector3(
+                pin.mesh.position.x - ball.position.x, 0, pin.mesh.position.z - ball.position.z);
+            knockPin(pin, fallDir);
+        }
+    }
+}
+// Animate falling pins toppling flat (rotate about their base each frame).
+function updatePins(dt) {
+    for (const pin of pins) {
+        if (!pin.falling) continue;
+        const delta = Math.min(PIN_TOPPLE_SPEED * dt, PIN_FALL_TARGET - pin.fallProgress);
+        pin.mesh.rotateOnWorldAxis(pin.fallAxis, delta);
+        pin.fallProgress += delta;
+        if (pin.fallProgress >= PIN_FALL_TARGET) pin.falling = false;  // fully down
+    }
+}
+
+// Re-rack: stand every pin back up at its home position.
+function resetPins() {
+    for (const pin of pins) {
+        pin.mesh.position.copy(pin.homePos);
+        pin.mesh.rotation.set(0, 0, 0);
+        pin.standing = true;
+        pin.falling = false;
+        pin.fallProgress = 0;
+    }
+}
+
+// =============================================================================
+// HW06 SCORING + GAME FLOW
+// =============================================================================
+
+// "Game Over" banner (hidden until the 10th frame is complete).
+const gameOverBanner = document.createElement('div');
+Object.assign(gameOverBanner.style, {
+  position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+  padding: '18px 28px', background: 'rgba(0,0,0,0.8)', color: '#fff',
+  font: 'bold 22px Arial, sans-serif', border: '2px solid #4da6ff',
+  borderRadius: '10px', textAlign: 'center', display: 'none',
+});
+document.body.appendChild(gameOverBanner);
+
+// Sum the next `count` individual rolls after frame f (for strike/spare bonuses).
+// Returns null if those rolls haven't been thrown yet (frame still incomplete).
+function nextRolls(frames, f, count) {
+  const seq = [];
+  for (let g = f + 1; g < 10; g++) for (const r of frames[g]) seq.push(r);
+  if (seq.length < count) return null;
+  return seq.slice(0, count).reduce((a, b) => a + b, 0);
+}
+
+// Is the 10th frame finished?
+function isTenthComplete(rolls) {
+  if (rolls.length < 2) return false;
+  if (rolls.length === 3) return true;
+  // exactly 2 rolls: done only if it was an open frame (no strike, no spare)
+  return rolls[0] !== 10 && (rolls[0] + rolls[1]) !== 10;
+}
+
+// Cumulative score per frame; entries stay null until that frame can be scored.
+function computeScores(frames) {
+  const totals = [];
+  let running = 0;
+  for (let f = 0; f < 10; f++) {
+    const rolls = frames[f];
+    if (rolls.length === 0) { totals.push(null); continue; }
+
+    if (f < 9) {
+      if (rolls[0] === 10) {                       // strike: 10 + next two rolls
+        const bonus = nextRolls(frames, f, 2);
+        if (bonus === null) { totals.push(null); continue; }
+        running += 10 + bonus;
+      } else if (rolls.length >= 2) {
+        const sum = rolls[0] + rolls[1];
+        if (sum === 10) {                          // spare: 10 + next roll
+          const bonus = nextRolls(frames, f, 1);
+          if (bonus === null) { totals.push(null); continue; }
+          running += 10 + bonus;
+        } else {                                   // open frame
+          running += sum;
+        }
+      } else { totals.push(null); continue; }      // only the first ball thrown
+    } else {
+      if (!isTenthComplete(rolls)) { totals.push(null); continue; }
+      running += rolls.reduce((a, b) => a + b, 0);
+    }
+    totals.push(running);
+  }
+  return totals;
+}
+
+// Roll-box display strings for frames 1-9 ('X' strike, '/' spare, '-' a miss).
+function formatFrame(rolls) {
+  const s = ['', ''];
+  if (rolls.length >= 1) {
+    if (rolls[0] === 10) s[1] = 'X';               // strike shown in the right box
+    else s[0] = rolls[0] === 0 ? '-' : String(rolls[0]);
+  }
+  if (rolls.length >= 2 && rolls[0] !== 10) {
+    s[1] = (rolls[0] + rolls[1] === 10) ? '/' : (rolls[1] === 0 ? '-' : String(rolls[1]));
+  }
+  return s;
+}
+
+// Roll-box display strings for the 10th frame (up to 3 rolls).
+function formatTenth(rolls) {
+  const s = ['', '', ''];
+  for (let i = 0; i < rolls.length; i++) {
+    const v = rolls[i];
+    if (v === 10) s[i] = 'X';
+    else if (i > 0 && rolls[i - 1] !== 10 && rolls[i - 1] + v === 10) s[i] = '/';
+    else s[i] = v === 0 ? '-' : String(v);
+  }
+  return s;
+}
+
+// Paint the scorecard DOM (roll boxes + running totals) and highlight the active frame.
+function renderScore() {
+  const totals = computeScores(game.frames);
+  const frameEls = document.querySelectorAll('#scorecard .frame');
+  frameEls.forEach((frameEl, i) => {
+    const rollEls = frameEl.querySelectorAll('.roll');
+    const strs = (i === 9) ? formatTenth(game.frames[i]) : formatFrame(game.frames[i]);
+    rollEls.forEach((re, idx) => { re.textContent = strs[idx] || ''; });
+    frameEl.querySelector('.frame-total').textContent = totals[i] == null ? '' : totals[i];
+    const active = (i === game.currentFrame && game.phase !== PHASES.GAMEOVER);
+    frameEl.style.outline = active ? '2px solid #4da6ff' : 'none';
+  });
+}
+
+// Called once the ball has come to rest: record pins, apply the bowling rules,
+// set up the next roll/frame (re-rack when appropriate), end game after frame 10.
+function resolveRoll() {
+  const standing = pins.filter((p) => p.standing).length;
+  const knocked = game.pinsAtRollStart - standing;
+  const frame = game.frames[game.currentFrame];
+  frame.push(knocked);
+
+  const isTenth = game.currentFrame === 9;
+  let rerack = false;
+  let advance = false;
+
+  if (!isTenth) {
+    if (frame.length === 1 && knocked === 10) { rerack = true; advance = true; }  // strike
+    else if (frame.length === 2)              { rerack = true; advance = true; }  // open or spare
+    // else: first ball, not a strike -> second ball on the pins left standing
+  } else {
+    const first = frame[0];
+    if (frame.length === 1) {
+      if (knocked === 10) rerack = true;                  // strike -> fresh rack for ball 2
+    } else if (frame.length === 2) {
+      if (first === 10) {                                 // ball 1 strike: bonus ball earned
+        if (knocked === 10) rerack = true;                //   ball 2 strike -> fresh rack for ball 3
+      } else if (first + frame[1] === 10) {               // spare: bonus ball earned
+        rerack = true;
+      } else {                                            // open 10th -> game over
+        advance = true;
+      }
+    } else {                                              // ball 3 thrown -> game over
+      advance = true;
+    }
+  }
+
+  if (rerack) resetPins();
+
+  if (advance) {
+    game.currentFrame++;
+    if (game.currentFrame > 9) {
+      game.phase = PHASES.GAMEOVER;
+      renderScore();
+      const totals = computeScores(game.frames);
+      gameOverBanner.textContent = `Game Over — Final Score: ${totals[9]}  (press R for a new game)`;
+      gameOverBanner.style.display = 'block';
+      return;
+    }
+  }
+
+  game.pinsAtRollStart = pins.filter((p) => p.standing).length;
+  renderScore();
+  resetAim();   // return the ball to the approach for the next roll
+}
+
+// Start a fresh 10-frame game.
+function newGame() {
+  game.frames = Array.from({ length: 10 }, () => []);
+  game.currentFrame = 0;
+  game.pinsAtRollStart = 10;
+  gameOverBanner.style.display = 'none';
+  resetPins();
+  resetAim();
+  renderScore();
+}
+
 // Called every frame from animate().
 function updateGame(dt) {
+
+    updatePins(dt);
   // Power meter sweeps back and forth between MIN_POWER and MAX_POWER.
   if (game.phase === PHASES.POWER) {
     game.power += game.powerDir * POWER_SPEED * dt;
@@ -585,12 +817,16 @@ function updateGame(dt) {
   }
 
   if (game.phase === PHASES.ROLLING) {
-      rollBall(dt);
+      const SUBSTEPS = 4;
+      for (let i = 0; i < SUBSTEPS && game.phase === PHASES.ROLLING; i++) {
+          rollBall(dt / SUBSTEPS);
+          if (!game.gutterBall) checkPinCollisions();
+      }
   }
 
   if (game.phase === PHASES.RESOLVING) {
-      game.resolveTimer -=dt;
-      if (game.resolveTimer <= 0) resetAim();
+    game.resolveTimer -= dt;
+    if (game.resolveTimer <= 0) resolveRoll();
   }
 
   // Show the meter only while aiming or charging.
@@ -599,7 +835,7 @@ function updateGame(dt) {
   updatePowerMeterUI();
 }
 
-resetAim();  // initialize aim state on load
+newGame();  // initialize a fresh game (pins up, scorecard cleared, ball ready)
 
 // =============================================================================
 // HW06 INPUT HANDLING
@@ -626,9 +862,9 @@ function handleKeyDown(e) {
     else if (game.phase === PHASES.POWER) { releaseBall(); }
   }
 
-  // R: reset to aiming (Step 5 will expand this to reset pins + score for a new game).
+  // R: start a brand-new game (re-rack pins, clear the scorecard).
   if (e.key.toLowerCase() === 'r') {
-    resetAim();
+    newGame();
   }
 }
 
