@@ -450,49 +450,118 @@ const FRICTION   = 4.0;                              // rolling deceleration (un
 const STOP_SPEED = 2.0;                              // below this the ball counts as stopped [Step 3]
 const GUTTER_Y   = -0.05;                            // y the ball drops to in a gutter      [Step 3]
 
-// ---- Game phases  ------------------------------------
+// ---- Game phases ------------------------------------------------------------
 const PHASES = {
-    AIMING:    'aiming',     // moving/aiming the ball on the foul line
-    POWER:     'power',      // power meter oscillating, waiting for the lock
-    ROLLING:   'rolling',    // ball in motion down the lane
-    RESOLVING: 'resolving',  // ball stopped/gutter -> counting pins, scoring
-    GAMEOVER:  'gameover',   // 10th frame complete
+  AIMING:    'aiming',     // moving/aiming the ball on the foul line
+  POWER:     'power',      // power meter oscillating, waiting for the lock
+  ROLLING:   'rolling',    // ball in motion down the lane
+  RESOLVING: 'resolving',  // ball stopped/gutter -> counting pins, scoring
+  GAMEOVER:  'gameover',   // 10th frame complete
 };
 
 // ---- Mutable game state -----------------------------------------------------
 const game = {
-    phase: PHASES.AIMING,
+  phase: PHASES.AIMING,
 
-    // aiming / release
-    aimX:     0,                    // ball x along the foul line
-    aimAngle: 0,                    // launch angle off straight-down-lane (radians)
-    power:    MIN_POWER,            // current power-meter value (0..1)
-    powerDir: 1,                    // meter sweep direction: +1 rising, -1 falling
-    velocity: new THREE.Vector3(),  // release velocity, integrated each frame in Step 3
+  // aiming / release
+  aimX:     0,                    // ball x along the foul line
+  aimAngle: 0,                    // launch angle off straight-down-lane (radians)
+  power:    MIN_POWER,            // current power-meter value (0..1)
+  powerDir: 1,                    // meter sweep direction: +1 rising, -1 falling
+  velocity: new THREE.Vector3(),  // release velocity, integrated each frame in Step 3
 
-    // scoring: one sub-array of pinfall counts per frame (e.g. [7, 2] or [10])
-    frames:        Array.from({ length: 10 }, () => []),
-    currentFrame:  0,               // 0-based index into frames (frame 1 == index 0)
-    pinsAtRollStart: 10,            // standing pins when the current roll started
+  // scoring: one sub-array of pinfall counts per frame (e.g. [7, 2] or [10])
+  frames:        Array.from({ length: 10 }, () => []),
+  currentFrame:  0,               // 0-based index into frames (frame 1 == index 0)
+  pinsAtRollStart: 10,            // standing pins when the current roll started
 };
 
 // =============================================================================
 // HW06 UI: POWER METER + LIVE SCORECARD
 // =============================================================================
-// TODO (HW06): Build the on-screen oscillating power meter and render the live
-// 10-frame scorecard (strikes 'X', spares '/', running cumulative total) into
-// the #scorecard frames created above. Extend the #controls-panel text with the
-// HW06 controls (arrows / Space / R).
+// (The live scorecard rendering is added in Step 5; the power meter is here.)
+
+// Oscillating power meter — a horizontal bar at the bottom-center of the screen.
+const powerMeter = document.createElement('div');
+powerMeter.id = 'power-meter';
+Object.assign(powerMeter.style, {
+  position: 'fixed', bottom: '24px', left: '50%', transform: 'translateX(-50%)',
+  width: '320px', height: '22px', background: 'rgba(0,0,0,0.6)',
+  border: '2px solid #fff', borderRadius: '6px', overflow: 'hidden', display: 'none',
+});
+const powerFill = document.createElement('div');
+Object.assign(powerFill.style, { height: '100%', width: '0%', background: '#2ecc71' });
+powerMeter.appendChild(powerFill);
+document.body.appendChild(powerMeter);
+
+function updatePowerMeterUI() {
+  powerFill.style.width = Math.round(game.power * 100) + '%';
+  // green -> yellow -> red as power rises
+  powerFill.style.background =
+    game.power < 0.5 ? '#2ecc71' : game.power < 0.8 ? '#f1c40f' : '#e74c3c';
+}
+
+// Fill in the HW06 controls list (reusing the HW05 #controls-panel container).
+(function setControlsText() {
+  const panel = document.getElementById('controls-panel');
+  panel.innerHTML = `
+    <h3>Bowling Game Controls</h3>
+    <p>← / → — Aim (move ball across the lane)</p>
+    <p>↑ / ↓ — Adjust curve/spin</p>
+    <p>Space — Start power meter, press again to release</p>
+    <p>R — Reset / new game</p>
+    <p>O — Toggle orbit camera</p>
+    <p>1–4 — Camera presets</p>
+  `;
+})();
 
 // =============================================================================
 // HW06 PHYSICS & COLLISION (called every frame from animate)
 // =============================================================================
-// TODO (HW06): updateGame(deltaTime):
-//   - integrate the ball's position from velocity (+ optional curve/friction)
-//   - gutter detection: |ball.x| > 1.75 (lane half-width) -> gutter ball, 0 pins
-//   - ball<->pin collisions (sphere vs pin bounding cylinder, ~0.20 radius)
-//   - pin<->pin propagation + topple animation (rotate the pin group flat)
-//   - end-of-roll detection -> count fallen pins, score, advance, reset ball
+
+// Snap the ball to its current aim spot on the foul-line approach.
+function applyAimToBall() {
+  ball.position.set(game.aimX, BALL_REST_Y, BALL_START.z);
+}
+
+// Return the ball to the approach and re-enter the aiming phase.
+function resetAim() {
+  game.phase = PHASES.AIMING;
+  game.aimX = 0;
+  game.aimAngle = 0;
+  game.power = MIN_POWER;
+  game.powerDir = 1;
+  game.velocity.set(0, 0, 0);
+  applyAimToBall();
+}
+
+// Lock the current power and launch the ball with a velocity from aim + power.
+function releaseBall() {
+  // Straight down the lane is -Z; aimAngle rotates that heading about Y.
+  const dir = new THREE.Vector3(Math.sin(game.aimAngle), 0, -Math.cos(game.aimAngle));
+  const speed = MIN_LAUNCH_SPEED + game.power * (MAX_LAUNCH_SPEED - MIN_LAUNCH_SPEED);
+  game.velocity.copy(dir.multiplyScalar(speed));
+  game.phase = PHASES.ROLLING;   // Step 3 integrates this velocity each frame
+}
+
+// Called every frame from animate().
+function updateGame(dt) {
+  // Power meter sweeps back and forth between MIN_POWER and MAX_POWER.
+  if (game.phase === PHASES.POWER) {
+    game.power += game.powerDir * POWER_SPEED * dt;
+    if (game.power >= MAX_POWER) { game.power = MAX_POWER; game.powerDir = -1; }
+    else if (game.power <= MIN_POWER) { game.power = MIN_POWER; game.powerDir = 1; }
+  }
+
+  // TODO (Step 3): if (game.phase === PHASES.ROLLING) integrate ball position here.
+
+  // Show the meter only while aiming or charging.
+  powerMeter.style.display =
+    (game.phase === PHASES.AIMING || game.phase === PHASES.POWER) ? 'block' : 'none';
+  updatePowerMeterUI();
+}
+
+resetAim();  // initialize aim state on load
 
 // =============================================================================
 // HW06 INPUT HANDLING
@@ -504,12 +573,25 @@ function handleKeyDown(e) {
   } else if (cameraViews[e.key]) {
     setCameraView(cameraViews[e.key]);
   }
+  // Aim the ball along the foul line (only while aiming).
+  if (game.phase === PHASES.AIMING) {
+    if (e.key === 'ArrowLeft')  { game.aimX = Math.max(-AIM_LIMIT, game.aimX - AIM_STEP); applyAimToBall(); }
+    if (e.key === 'ArrowRight') { game.aimX = Math.min( AIM_LIMIT, game.aimX + AIM_STEP); applyAimToBall(); }
+    if (e.key === 'ArrowUp')    { game.aimAngle = Math.max(-MAX_AIM_ANGLE, game.aimAngle - AIM_ANGLE_STEP); }
+    if (e.key === 'ArrowDown')  { game.aimAngle = Math.min( MAX_AIM_ANGLE, game.aimAngle + AIM_ANGLE_STEP); }
+  }
 
-  // TODO (HW06): add interactive controls, gated by the current game phase:
-  //   ArrowLeft / ArrowRight : move / aim the ball along the foul line
-  //   ArrowUp   / ArrowDown  : adjust spin / curve (optional)
-  //   Space                  : start the power meter -> lock power -> release
-  //   r                      : reset pins / start a new game
+  // Space: aiming -> start the meter; power -> lock power and release.
+  if (e.key === ' ') {
+    e.preventDefault();  // stop the page from scrolling
+    if (game.phase === PHASES.AIMING)     { game.phase = PHASES.POWER; game.power = MIN_POWER; game.powerDir = 1; }
+    else if (game.phase === PHASES.POWER) { releaseBall(); }
+  }
+
+  // R: reset to aiming (Step 5 will expand this to reset pins + score for a new game).
+  if (e.key.toLowerCase() === 'r') {
+    resetAim();
+  }
 }
 
 document.addEventListener('keydown', handleKeyDown);
@@ -520,7 +602,7 @@ function animate() {
   requestAnimationFrame(animate);
 
   const deltaTime = clock.getDelta();
-  // TODO (HW06): updateGame(deltaTime);
+  updateGame(deltaTime);
 
   // Update controls
   controls.enabled = isOrbitEnabled;
