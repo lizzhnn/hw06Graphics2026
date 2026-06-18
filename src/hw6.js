@@ -579,7 +579,7 @@ function endRoll() {
 // HW06 PIN COLLISION & TOPPLING
 // =============================================================================
 const PIN_COLLISION_RADIUS = 0.18;          // pin bounding radius for ball<->pin tests
-const PIN_PIN_RADIUS       = 1.05;          // a falling pin knocks standing pins within this
+const PIN_PIN_RADIUS       = 0.99;          // a falling pin knocks standing pins within this
 const PIN_TOPPLE_SPEED     = 8.0;           // topple animation speed (radians/sec)
 const PIN_FALL_TARGET      = Math.PI / 2;   // 90° = lying flat
 
