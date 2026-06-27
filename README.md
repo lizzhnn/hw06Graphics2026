@@ -6,6 +6,17 @@ ball with hand-written physics, pin collision and toppling, and complete 10-fram
 scoring. There is no external physics engine — all motion and collision are integrated
 by hand in the `animate()` loop using delta time.
 
+## Demo
+A short gameplay recording (aiming and releasing with the power meter, the ball
+rolling and knocking down pins, a gutter ball, and the scorecard updating across
+several frames including strikes and a spare):
+
+- 🎥 [Gameplay video](media/gameplay.mov)
+
+| Aiming | Roll in progress | Scorecard |
+|--------|------------------|-----------|
+| ![Aiming on the approach with the power meter](media/screenshot-aiming.png) | ![Ball rolling down the lane toward the pins](media/screenshot-roll.png) | ![Ten-frame scorecard with strikes, a spare, and running totals](media/screenshot-scorecard.png) |
+
 ## Group Members
 - Elizaveta Khanan
 
