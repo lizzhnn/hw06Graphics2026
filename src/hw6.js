@@ -495,6 +495,7 @@ const game = {
   power:    MIN_POWER,            // current power-meter value (0..1)
   powerDir: 1,                    // meter sweep direction: +1 rising, -1 falling
   velocity: new THREE.Vector3(),  // release velocity, integrated each frame in Step 3
+  cascadeRadius: 0.85,            // pin-to-pin reach for the current roll (set at release)
 
   // scoring: one sub-array of pinfall counts per frame (e.g. [7, 2] or [10])
   frames:        Array.from({ length: 10 }, () => []),
@@ -568,6 +569,9 @@ function releaseBall() {
   const dir = new THREE.Vector3(Math.sin(game.aimAngle), 0, -Math.cos(game.aimAngle));
   const speed = MIN_LAUNCH_SPEED + game.power * (MAX_LAUNCH_SPEED - MIN_LAUNCH_SPEED);
   game.velocity.copy(dir.multiplyScalar(speed));
+  // Lock in this shot's cascade reach from the chosen power (0..1).
+  const t = (game.power - MIN_POWER) / (MAX_POWER - MIN_POWER);
+  game.cascadeRadius = PIN_PIN_RADIUS_MIN + t * (PIN_PIN_RADIUS_MAX - PIN_PIN_RADIUS_MIN);
   game.gutterBall = false; // fresh roll
   game.phase = PHASES.ROLLING;
 }
@@ -606,7 +610,12 @@ function endRoll() {
 // HW06 PIN COLLISION & TOPPLING
 // =============================================================================
 const PIN_COLLISION_RADIUS = 0.18;          // pin bounding radius for ball<->pin tests
-const PIN_PIN_RADIUS       = 0.99;          // a falling pin knocks standing pins within this
+// Pin-to-pin cascade reach scales with the shot's power: a soft roll barely
+// nudges neighbours, a hard roll scatters them. Neighbours are 1.0 apart, so the
+// radius must cross 1.0 for any cascade to happen — low power stays under it
+// (only directly-hit pins fall), high power goes over it (chain reaction).
+const PIN_PIN_RADIUS_MIN   = 0.85;          // cascade reach at MIN_POWER (no propagation)
+const PIN_PIN_RADIUS_MAX   = 1.15;          // cascade reach at MAX_POWER (full carry possible)
 const PIN_TOPPLE_SPEED     = 8.0;           // topple animation speed (radians/sec)
 const PIN_FALL_TARGET      = Math.PI / 2;   // 90° = lying flat
 
@@ -627,7 +636,7 @@ function knockPin(pin, fallDir) {
         const to = other.homePos.clone().sub(pin.homePos);
         to.y = 0;
         const d = to.length();
-        if (d > 0 && d < PIN_PIN_RADIUS && to.clone().normalize().dot(pin.fallDir) > 0.3) {
+        if (d > 0 && d < game.cascadeRadius && to.clone().normalize().dot(pin.fallDir) > 0.3) {
             knockPin(other, to);
         }
     }
