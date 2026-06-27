@@ -430,6 +430,32 @@ function setCameraView(view) {
   controls.update();
 }
 
+// ---- "Follow the ball" camera (bonus) ---------------------------------------
+// Toggled with 'F'. While active, orbit input is suspended and the camera trails
+// the ball from the bowler's side, easing toward its target each frame so the
+// motion stays smooth instead of snapping.
+let isFollowCam = false;
+const FOLLOW_HEIGHT  = 3.5;          // how far above the ball the camera sits
+const FOLLOW_BEHIND  = 7.0;          // how far behind the ball (toward +Z) it trails
+const FOLLOW_LERP    = 6.0;          // higher = snappier follow
+const followDesired  = new THREE.Vector3();
+const followLookAt   = new THREE.Vector3();
+
+function updateFollowCam(dt) {
+  // Trail behind the ball (+Z is the bowler's side) and above it. The lateral
+  // term is damped so a gutter-bound ball doesn't yank the camera sideways.
+  followDesired.set(
+    ball.position.x * 0.4,
+    ball.position.y + FOLLOW_HEIGHT,
+    ball.position.z + FOLLOW_BEHIND
+  );
+  // Frame-rate-independent smoothing toward the desired position.
+  camera.position.lerp(followDesired, 1 - Math.exp(-FOLLOW_LERP * dt));
+  // Aim a little ahead of the ball, down the lane.
+  followLookAt.set(ball.position.x * 0.5, ball.position.y, ball.position.z - 6);
+  camera.lookAt(followLookAt);
+}
+
 // =============================================================================
 // HW06 GAME STATE  + TUNING CONSTANTS
 // =============================================================================
@@ -511,6 +537,7 @@ function updatePowerMeterUI() {
     <p>Space — Start power meter, press again to release</p>
     <p>R — Reset / new game</p>
     <p>O — Toggle orbit camera</p>
+    <p>F — Toggle follow-the-ball camera</p>
     <p>1–4 — Camera presets</p>
   `;
 })();
@@ -844,7 +871,12 @@ newGame();  // initialize a fresh game (pins up, scorecard cleared, ball ready)
 function handleKeyDown(e) {
   if (e.key.toLowerCase() === "o") {
     isOrbitEnabled = !isOrbitEnabled;
+  } else if (e.key.toLowerCase() === "f") {
+    isFollowCam = !isFollowCam;
+    // Hand control back to orbit smoothly: pivot around wherever we were looking.
+    if (!isFollowCam) { controls.target.copy(followLookAt); controls.update(); }
   } else if (cameraViews[e.key]) {
+    isFollowCam = false;            // a preset overrides the follow cam
     setCameraView(cameraViews[e.key]);
   }
   // Aim the ball along the foul line (only while aiming).
@@ -878,9 +910,14 @@ function animate() {
   const deltaTime = clock.getDelta();
   updateGame(deltaTime);
 
-  // Update controls
-  controls.enabled = isOrbitEnabled;
-  controls.update();
+  // Update camera: follow cam takes over from orbit while engaged.
+  if (isFollowCam) {
+    controls.enabled = false;
+    updateFollowCam(deltaTime);
+  } else {
+    controls.enabled = isOrbitEnabled;
+    controls.update();
+  }
 
   renderer.render(scene, camera);
 }
