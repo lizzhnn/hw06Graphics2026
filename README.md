@@ -11,7 +11,7 @@ A short gameplay recording (aiming and releasing with the power meter, the ball
 rolling and knocking down pins, a gutter ball, and the scorecard updating across
 several frames including strikes and a spare):
 
-- 🎥 [Gameplay video](media/gameplay.mov)
+- 🎥 [Gameplay video (Google Drive)](https://drive.google.com/file/d/1JnxDawv_qHLxmaf7LiI29fUd2Q4YlP02/view?usp=sharing) — also in the repo at [media/gameplay.mov](media/gameplay.mov)
 
 | Aiming | Roll in progress | Scorecard |
 |--------|------------------|-----------|
